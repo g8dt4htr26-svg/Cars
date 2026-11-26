@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mini Racer</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#10141c;color:#fff;font-family:system-ui;touch-action:none;
+  user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent}
+main{height:100dvh;display:flex;flex-direction:column;align-items:center;gap:8px;padding:8px}
+header{width:min(100%,420px);display:flex;justify-content:space-between;font-weight:800}
+canvas{width:min(100%,420px);height:min(58dvh,600px);border:2px solid #394353;border-radius:14px;background:#242a33;display:block}
+.controls{width:min(100%,420px);display:flex;gap:10px}
+button{border:0;border-radius:14px;padding:16px 8px;font-size:24px;font-weight:900;color:#fff;background:#2f80ed;touch-action:none}
+.controls button{flex:1}
+#start{font-size:15px;background:#22a06b}
+.nitro{width:min(100%,420px);height:12px;border-radius:8px;background:#232a35;border:1px solid #394353;overflow:hidden}
+.nitro i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ffb020,#ff5b2e);transition:width .06s linear}
+#boost{width:min(100%,420px);font-size:19px;padding:13px;letter-spacing:1px;
+  background:linear-gradient(180deg,#ff9d2e,#f4511e);box-shadow:0 4px 0 #a8330d}
+#boost.on{filter:brightness(1.3);transform:translateY(2px);box-shadow:0 2px 0 #a8330d}
+#boost.empty{background:#3a3f47;color:#8b95a3;box-shadow:0 4px 0 #22262c}
+small{color:#aab4c3;text-align:center;line-height:1.35}
+</style>
+</head>
+<body><main>
+<header><span>🏎 MINI RACER</span><span>Очки: <b id="score">0</b></span></header>
+<canvas id="c" width="420" height="680"></canvas>
+<div class="nitro"><i id="nbar"></i></div>
+<div class="controls"><button id="l">◀</button><button id="start">СТАРТ / ЗАНОВО</button><button id="r">▶</button></div>
+<button id="boost">⚡ НИТРО</button>
+<small>Уворачивайся от машин! ← → или кнопки. НИТРО — ускорение (⚡ или Shift)</small>
+</main>
+<script>
+(()=>{
+const c=document.getElementById('c'),x=c.getContext('2d'),S=document.getElementById('score');
+const bar=document.getElementById('nbar'),boostBtn=document.getElementById('boost');
+const W=420,H=680,L=54,R=366,lw=(R-L)/3;
+
+let lane=1,traffic=[],score=0,speed=4,offset=0,run=false,crash=false,spawn=0,last=0;
+let nitro=1,boosting=false;
+
+function shade(hex,amt){
+  const n=parseInt(hex.slice(1),16);
+  const r=Math.max(0,Math.min(255,((n>>16)&255)+amt));
+  const g=Math.max(0,Math.min(255,((n>>8)&255)+amt));
+  const b=Math.max(0,Math.min(255,(n&255)+amt));
+  return `rgb(${r},${g},${b})`;
+}
+function rrect(px,py,w,h,r){
+  x.beginPath();
+  x.moveTo(px+r,py);
+  x.arcTo(px+w,py,px+w,py+h,r);
+  x.arcTo(px+w,py+h,px,py+h,r);
+  x.arcTo(px,py+h,px,py,r);
+  x.arcTo(px,py,px+w,py,r);
+  x.closePath();
+}
+function drawCar(px,py,col,player){
+  const w=48,h=74;
+  x.fillStyle='rgba(0,0,0,.32)';
+  rrect(px+3,py+9,w-4,h-6,14);x.fill();
+  x.fillStyle='#0b0f14';
+  rrect(px-1,py+13,10,20,5);x.fill();
+  rrect(px+w-9,py+13,10,20,5);x.fill();
+  rrect(px-1,py+45,10,20,5);x.fill();
+  rrect(px+w-9,py+45,10,20,5);x.fill();
+  x.fillStyle='rgba(255,255,255,.10)';
+  rrect(px+1,py+15,3,15,2);x.fill();
+  rrect(px+w-7,py+15,3,15,2);x.fill();
+  rrect(px+1,py+47,3,15,2);x.fill();
+  rrect(px+w-7,py+47,3,15,2);x.fill();
+  const bg=x.createLinearGradient(px,0,px+w,0);
+  bg.addColorStop(0,shade(col,-58));
+  bg.addColorStop(.16,shade(col,-6));
+  bg.addColorStop(.5,shade(col,42));
+  bg.addColorStop(.84,shade(col,-6));
+  bg.addColorStop(1,shade(col,-58));
+  x.fillStyle=bg;
+  rrect(px+3,py+2,w-6,h-6,13);x.fill();
+  x.strokeStyle='rgba(0,0,0,.5)';x.lineWidth=1.5;x.stroke();
+  const vg=x.createLinearGradient(0,py,0,py+h);
+  vg.addColorStop(0,'rgba(255,255,255,.28)');
+  vg.addColorStop(.30,'rgba(255,255,255,0)');
+  vg.addColorStop(.72,'rgba(0,0,0,0)');
+  vg.addColorStop(1,'rgba(0,0,0,.40)');
+  x.fillStyle=vg;
+  rrect(px+3,py+2,w-6,h-6,13);x.fill();
+  const ws=x.createLinearGradient(0,py+13,0,py+35);
+  ws.addColorStop(0,player?'#d8f3ff':'#93aec9');
+  ws.addColorStop(1,player?'#5b8fb4':'#39506a');
+  x.fillStyle=ws;
+  rrect(px+10,py+13,w-20,21,7);x.fill();
+  x.strokeStyle='rgba(0,0,0,.25)';x.lineWidth=1;x.stroke();
+  x.fillStyle='rgba(0,0,0,.18)';
+  rrect(px+11,py+38,w-22,8,4);x.fill();
+  x.fillStyle='rgba(255,255,255,.14)';
+  rrect(px+12,py+38,w-24,3,2);x.fill();
+  const rw=x.createLinearGradient(0,py+48,0,py+64);
+  rw.addColorStop(0,'rgba(10,20,30,.9)');
+  rw.addColorStop(1,'rgba(60,85,110,.9)');
+  x.fillStyle=rw;
+  rrect(px+11,py+48,w-22,16,5);x.fill();
+  x.save();
+  x.shadowColor=player?'#bfe9ff':'#fff3b0';
+  x.shadowBlur=10;
+  x.fillStyle=player?'#eafaff':'#fff8cc';
+  rrect(px+6,py+1,11,6,3);x.fill();
+  rrect(px+w-17,py+1,11,6,3);x.fill();
+  x.restore();
+  x.save();
+  x.shadowColor='#ff2b3d';x.shadowBlur=8;
+  x.fillStyle='#ff5468';
+  rrect(px+6,py+h-8,11,5,2.5);x.fill();
+  rrect(px+w-17,py+h-8,11,5,2.5);x.fill();
+  x.restore();
+}
+function drawFlames(px,py){
+  const w=48;
+  for(const side of [0,1]){
+    const cx=px+(side?w-13:13);
+    const len=26+Math.random()*22;
+    const g=x.createLinearGradient(0,py+66,0,py+68+len);
+    g.addColorStop(0,'rgba(255,255,200,.95)');
+    g.addColorStop(.35,'rgba(255,170,40,.9)');
+    g.addColorStop(1,'rgba(255,60,0,0)');
+    x.fillStyle=g;
+    x.beginPath();
+    x.moveTo(cx-8,py+66);
+    x.quadraticCurveTo(cx,py+70+len,cx+8,py+66);
+    x.closePath();x.fill();
+  }
+}
+function draw(){
+  x.setTransform(1,0,0,1,0,0);
+  x.fillStyle='#24613d';x.fillRect(0,0,W,H);
+  const boostNow = run && boosting && nitro>0;
+  if(boostNow) x.translate((Math.random()-.5)*3,(Math.random()-.5)*3);
+  x.fillStyle='#343a43';x.fillRect(L,0,R-L,H);
+  x.fillStyle='#eee';x.fillRect(L+5,0,4,H);x.fillRect(R-9,0,4,H);
+  x.strokeStyle='#d2d6dc';x.lineWidth=4;x.setLineDash([34,30]);x.lineDashOffset=-offset;
+  for(let i=1;i<3;i++){x.beginPath();x.moveTo(L+i*lw,0);x.lineTo(L+i*lw,H);x.stroke()}
+  x.setLineDash([]);
+  traffic.forEach(t=>drawCar(t.px,t.y,t.col,false));
+  const px=L+lane*lw+(lw-48)/2;
+  if(boostNow) drawFlames(px,550);
+  drawCar(px,550,'#e83d4f',true);
+  x.setTransform(1,0,0,1,0,0);
+  if(!run){
+    x.fillStyle='rgba(0,0,0,.62)';x.fillRect(70,250,280,155);
+    x.textAlign='center';x.fillStyle='#fff';
+    x.font='bold 29px system-ui';
+    x.fillText(crash?'АВАРИЯ!':'MINI RACER',210,300);
+    x.font='18px system-ui';
+    x.fillText('Нажми СТАРТ',210,340);
+    if(crash){x.font='16px system-ui';x.fillText('Очки: '+score,210,372)}
+  }
+}
+function reset(){
+  lane=1;traffic=[];score=0;speed=4;offset=0;spawn=0;crash=false;run=true;
+  nitro=1;setBoost(false);S.textContent=0;
+}
+function setBoost(v){
+  boosting=v;
+  boostBtn.classList.toggle('on',v);
+}
+function move(d){if(run)lane=Math.max(0,Math.min(2,lane+d))}
+document.getElementById('l').onpointerdown=e=>{e.preventDefault();move(-1)};
+document.getElementById('r').onpointerdown=e=>{e.preventDefault();move(1)};
+document.getElementById('start').onclick=reset;
+boostBtn.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(run&&nitro>0)setBoost(true);
+});
+['pointerup','pointercancel','pointerleave'].forEach(ev=>
+  boostBtn.addEventListener(ev,()=>setBoost(false))
+);
+window.addEventListener('pointerup',()=>setBoost(false));
+onkeydown=e=>{
+  if(e.key==='ArrowLeft')move(-1);
+  if(e.key==='ArrowRight')move(1);
+  if(e.key===' '&&!run){e.preventDefault();reset()}
+  if(e.key==='Shift'){e.preventDefault();if(run&&nitro>0)setBoost(true)}
+};
+onkeyup=e=>{if(e.key==='Shift')setBoost(false)};
+function loop(t){
+  let dt=Math.min((t-last)/16.67||1,2.5);last=t;
+  const canBoost = run && boosting && nitro>0;
+  if(canBoost){
+    nitro=Math.max(0,nitro-dt*0.0055);
+    if(nitro===0)setBoost(false);
+  }else{
+    nitro=Math.min(1,nitro+dt*0.0018);
+  }
+  bar.style.width=(nitro*100)+'%';
+  boostBtn.classList.toggle('empty',nitro<=0);
+  if(run){
+    const ws=(speed+score/250)*(canBoost?1.9:1);
+    offset=(offset+ws*dt)%64;
+    spawn+=dt*(canBoost?1.25:1);
+    if(spawn>Math.max(28,72-score/18)){
+      spawn=0;
+      const ln=Math.floor(Math.random()*3);
+      traffic.push({
+        lane:ln,
+        px:L+ln*lw+(lw-48)/2,
+        y:-100,
+        col:['#f39c35','#5d9cec','#a66be0','#e9edf2'][Math.random()*4|0]
+      });
+    }
+    traffic.forEach(a=>a.y+=ws*dt);
+    for(const a of traffic){
+      if(a.lane===lane && a.y+74>558 && a.y<624){
+        run=false;crash=true;setBoost(false);break;
+      }
+    }
+    traffic=traffic.filter(a=>{
+      if(a.y>H){score+=canBoost?20:10;S.textContent=score;return false}
+      return true;
+    });
+    speed=Math.min(9,4+score/250);
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+draw();
+requestAnimationFrame(loop);
+})();
+</script></body></html>
